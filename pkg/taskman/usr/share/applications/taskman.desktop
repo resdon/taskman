@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=Taskman
+Exec=/usr/bin/taskman
+Icon=taskman
+Type=Application
+Categories=System;Monitor;
+Terminal=false

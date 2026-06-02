@@ -107,8 +107,13 @@ impl ApplicationHandler for TaskManager {
         self.pixels = Some(unsafe { std::mem::transmute::<Pixels<'_>, Pixels<'static>>(pixels) });
     }
     
-    fn window_event(&mut self, _event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
             match event {
+                // Window close
+                WindowEvent::CloseRequested => {
+                    event_loop.exit();
+                }
+                
                 // Window resize
                 WindowEvent::Resized(size) => {
                     if let Some(pixels) = &mut self.pixels {
