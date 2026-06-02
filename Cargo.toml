@@ -1,0 +1,11 @@
+[package]
+name = "taskman"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+pixels = "0.15.0"
+sysinfo = "0.37.2"
+fontdue = "0.9.3"
+winit = "0.30.12"
+nvml-wrapper = "0.12.1"
