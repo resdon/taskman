@@ -14,7 +14,8 @@ const WIDTH: u32 = 480;
 const HEIGHT: u32 = 540;
 const FONT_DATA: &[u8] = include_bytes!("../assets/font.ttf");
 
-enum SortBy { Name, CPU, RAM, PPID }
+#[derive(Clone, Copy, PartialEq)]
+enum SortBy { Name, CPU, RAM, PPID, PID }
 
 // The lifetime 'a indicates the Pixels object borrows from the window
 struct TaskManager {
@@ -26,7 +27,7 @@ struct TaskManager {
     is_dragging: bool,
     last_mouse_y: f64,
     last_update: std::time::Instant,
-    processes: Vec<(std::path::PathBuf, (u64, f32, String, u32))>,
+    processes: Vec<(std::path::PathBuf, (u64, f32, String, u32, u32))>,
     global_vram_used: u64,
     global_vram_total: u64,
     nvml: Option<nvml_wrapper::Nvml>,
@@ -37,6 +38,7 @@ struct TaskManager {
     last_net_update: std::time::Instant,
     networks: sysinfo::Networks,
     sort_by: SortBy,
+    sort_ascending: bool, // New: track sort direction
     last_mouse_x: f64,
 }
 
@@ -62,6 +64,7 @@ impl TaskManager {
             last_net_update: std::time::Instant::now(),
             networks: sysinfo::Networks::new_with_refreshed_list(),
             sort_by: SortBy::RAM,
+            sort_ascending: false,
             last_mouse_x: 0.0,
         }
     }
@@ -152,14 +155,25 @@ impl ApplicationHandler for TaskManager {
                             
                             // 1. Header Click Test (Sort)
                             if self.last_mouse_y >= 40.0 && self.last_mouse_y <= 50.0 {
-                                if self.last_mouse_x >= 0.0 && self.last_mouse_x < 60.0 {
-                                    self.sort_by = SortBy::Name;
-                                } else if self.last_mouse_x >= 240.0 && self.last_mouse_x < 290.0 { // Corrected variable and bounds
-                                    self.sort_by = SortBy::PPID;
-                                } else if self.last_mouse_x >= 310.0 && self.last_mouse_x < 360.0 {
-                                    self.sort_by = SortBy::CPU;
-                                } else if self.last_mouse_x >= 390.0 && self.last_mouse_x < 450.0 {
-                                    self.sort_by = SortBy::RAM;
+                                let new_sort = if self.last_mouse_x >= 0.0 && self.last_mouse_x < 60.0 { Some(SortBy::Name) }
+                                    else if self.last_mouse_x >= 200.0 && self.last_mouse_x < 250.0 { Some(SortBy::PID) }
+                                    else if self.last_mouse_x >= 250.0 && self.last_mouse_x < 300.0 { Some(SortBy::PPID) }
+                                    else if self.last_mouse_x >= 310.0 && self.last_mouse_x < 360.0 { Some(SortBy::CPU) }
+                                    else if self.last_mouse_x >= 390.0 && self.last_mouse_x < 450.0 { Some(SortBy::RAM) }
+                                    else { None };
+
+                                if let Some(new_sort) = new_sort {
+                                    match self.sort_by {
+                                        SortBy::Name if matches!(new_sort, SortBy::Name) => self.sort_ascending = !self.sort_ascending,
+                                        SortBy::PID if matches!(new_sort, SortBy::PID) => self.sort_ascending = !self.sort_ascending,
+                                        SortBy::PPID if matches!(new_sort, SortBy::PPID) => self.sort_ascending = !self.sort_ascending,
+                                        SortBy::CPU if matches!(new_sort, SortBy::CPU) => self.sort_ascending = !self.sort_ascending,
+                                        SortBy::RAM if matches!(new_sort, SortBy::RAM) => self.sort_ascending = !self.sort_ascending,
+                                        _ => {
+                                            self.sort_by = new_sort;
+                                            self.sort_ascending = false; // Default descending for new sort
+                                        }
+                                    }
                                 }
                             }
                             // 2. Scrollbar Click Test (Drag)
@@ -240,39 +254,44 @@ impl ApplicationHandler for TaskManager {
                     }
 
                     // 2. Group processes by name
-                    // Use PathBuf as the key, and a 3-element tuple as the value
-                    let mut process_groups: HashMap<std::path::PathBuf, (u64, f32, String, u32)> = HashMap::new();
+                    // Use PathBuf as the key, and a 5-element tuple as the value
+                    let mut process_groups: HashMap<std::path::PathBuf, (u64, f32, String, u32, u32)> = HashMap::new();
 
                     let core_count = (self.sys.cpus().len() as f32).max(1.0); // Get the number of cores
-                    
-                    for (_pid, proc) in self.sys.processes() {
+
+                    for (pid, proc) in self.sys.processes() {
                         if let Some(exe_path) = proc.exe() {
                             let name = proc.name().to_string_lossy().to_string();
                             let ppid = proc.parent().map(|p| p.as_u32()).unwrap_or(0); // Get PPID
-                            
+                            let pid_val = pid.as_u32();
+
                             let entry = process_groups.entry(exe_path.to_path_buf())
-                                .or_insert((0, 0.0, name, ppid)); // (RAM, CPU, Name, PPID) - 4 elements
-                            
+                                .or_insert((0, 0.0, name, ppid, pid_val)); // (RAM, CPU, Name, PPID, PID) - 5 elements
+
                             entry.0 = entry.0.max(proc.memory());
 
                             let normalized_cpu = proc.cpu_usage() / core_count;
                             entry.1 = entry.1.max(normalized_cpu);
+                            // Keep the smallest PID for the group (or logic of your choice)
+                            entry.4 = entry.4.min(pid_val);
                         }
                     }
-                    
+
                     // 2. Convert once and store directly into your struct field
                     self.processes = process_groups.into_iter().collect();
-                    
+
                     // 3. Sort the struct field directly
-                    match self.sort_by {
-                        SortBy::Name => self.processes.sort_by(|a, b| a.1.2.cmp(&b.1.2)), // Sort by name string
-                        SortBy::CPU => self.processes.sort_by(|a, b| {
-                            let diff = b.1.1 - a.1.1;
-                            if diff.abs() < 0.5 { std::cmp::Ordering::Equal } 
-                            else { b.1.1.partial_cmp(&a.1.1).unwrap_or(std::cmp::Ordering::Equal) }
-                        }), // Sort by CPU (desc)
-                        SortBy::PPID => self.processes.sort_by(|a, b| a.1.3.cmp(&b.1.3)),
-                        SortBy::RAM  => self.processes.sort_by(|a, b| b.1.0.cmp(&a.1.0)), // Sort by RAM (desc)
+                    match (self.sort_by, self.sort_ascending) {
+                        (SortBy::Name, true) => self.processes.sort_by(|a, b| a.1.2.cmp(&b.1.2)),
+                        (SortBy::Name, false) => self.processes.sort_by(|a, b| b.1.2.cmp(&a.1.2)),
+                        (SortBy::CPU, true) => self.processes.sort_by(|a, b| a.1.1.partial_cmp(&b.1.1).unwrap_or(std::cmp::Ordering::Equal)),
+                        (SortBy::CPU, false) => self.processes.sort_by(|a, b| b.1.1.partial_cmp(&a.1.1).unwrap_or(std::cmp::Ordering::Equal)),
+                        (SortBy::PPID, true) => self.processes.sort_by(|a, b| a.1.3.cmp(&b.1.3)),
+                        (SortBy::PPID, false) => self.processes.sort_by(|a, b| b.1.3.cmp(&a.1.3)),
+                        (SortBy::PID, true) => self.processes.sort_by(|a, b| a.1.4.cmp(&b.1.4)),
+                        (SortBy::PID, false) => self.processes.sort_by(|a, b| b.1.4.cmp(&a.1.4)),
+                        (SortBy::RAM, true) => self.processes.sort_by(|a, b| a.1.0.cmp(&b.1.0)),
+                        (SortBy::RAM, false) => self.processes.sort_by(|a, b| b.1.0.cmp(&a.1.0)),
                     }
 
                     if let Some(pixels) = &mut self.pixels {
@@ -295,25 +314,29 @@ impl ApplicationHandler for TaskManager {
                         
                         // Column Titles
                         self.world.draw_text(frame, "NAME", 10, 50, 14.0, [255, 255, 0]);
-                        self.world.draw_text(frame, "PPID", 250, 50, 14.0, [255, 255, 0]);
+                        self.world.draw_text(frame, "PID", 210, 50, 14.0, [255, 255, 0]);
+                        self.world.draw_text(frame, "PPID", 260, 50, 14.0, [255, 255, 0]);
                         self.world.draw_text(frame, "CPU", 320, 50, 14.0, [255, 255, 0]);
                         self.world.draw_text(frame, "RAM", 400, 50, 14.0, [255, 255, 0]);
 
                         // Process Rows (Grey rectangles removed for clean look)
-                        for (i, (path, (ram, cpu, name, ppid))) in self.processes.iter().skip(self.scroll_offset).take(15).enumerate() {
+                        for (i, (path, (ram, cpu, name, ppid, pid))) in self.processes.iter().skip(self.scroll_offset).take(15).enumerate() {
                             let y = (80 + (i as u32 * 25)) as usize;
                             let display_name = path.file_name().map(|n| n.to_string_lossy()).unwrap_or(std::borrow::Cow::Borrowed(name));
                         
                             // 1. Name
                             self.world.draw_text(frame, &display_name, 10, y, 12.0, [255, 255, 255]);
 
-                            // 2. PPID - New column
-                            self.world.draw_text(frame, &ppid.to_string(), 250, y, 12.0, [200, 200, 200]);
+                            // 2. PID
+                            self.world.draw_text(frame, &pid.to_string(), 210, y, 12.0, [200, 200, 200]);
+
+                            // 3. PPID
+                            self.world.draw_text(frame, &ppid.to_string(), 260, y, 12.0, [200, 200, 200]);
                             
-                            // 3. CPU - New column
+                            // 4. CPU
                             self.world.draw_text(frame, &format!("{:.1}%", cpu), 320, y, 12.0, [0, 255, 0]);
                             
-                            // 4. RAM
+                            // 5. RAM
                             self.world.draw_text(frame, &format!("{}M", ram / 1024 / 1024), 400, y, 12.0, [200, 200, 200]);
                         }
                         // Scrollbar

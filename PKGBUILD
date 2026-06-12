@@ -32,5 +32,6 @@ Icon=taskman
 Type=Application
 Categories=System;Monitor;
 Terminal=false
+StartupWMClass=taskman
 EOF
 }
