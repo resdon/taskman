@@ -3,6 +3,7 @@ use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::window::{Window, WindowId};
+use winit::window::WindowButtons;
 use std::sync::Arc;
 use std::collections::HashMap;
 use sysinfo::{System, ProcessesToUpdate};
@@ -92,6 +93,8 @@ impl ApplicationHandler for TaskManager {
             winit::window::Window::default_attributes()
                 .with_title("Task Manager")
                 .with_inner_size(winit::dpi::LogicalSize::new(WIDTH, HEIGHT))
+                .with_resizable(false)
+                .with_enabled_buttons(WindowButtons::MINIMIZE | WindowButtons::CLOSE)
                 // --- ADD THESE TWO LINES ---
                 .with_min_inner_size(winit::dpi::LogicalSize::new(WIDTH, HEIGHT))
                 .with_max_inner_size(winit::dpi::LogicalSize::new(WIDTH, HEIGHT))
@@ -117,10 +120,14 @@ impl ApplicationHandler for TaskManager {
                     event_loop.exit();
                 }
                 
-                // Window resize
+				// Window resize
                 WindowEvent::Resized(size) => {
-                    if let Some(pixels) = &mut self.pixels {
-                        // Only resize if the window has actual dimensions
+                    // Enforce fixed dimensions to block maximizing/stretching
+                    if size.width != WIDTH || size.height != HEIGHT {
+                        if let Some(window) = &self.window {
+                            window.request_inner_size(winit::dpi::LogicalSize::new(WIDTH, HEIGHT));
+                        }
+                    } else if let Some(pixels) = &mut self.pixels {
                         if size.width > 0 && size.height > 0 {
                             pixels.resize_surface(size.width, size.height).unwrap();
                             pixels.resize_buffer(size.width, size.height).unwrap();

@@ -1,1 +1,5 @@
 /target
+/pkg
+/*.pkg.tar.zst
+/taskman
+log.txt
