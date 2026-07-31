@@ -414,6 +414,13 @@ impl ApplicationHandler for TaskManager {
 }
 
 fn main() {
+    // Check for version flags before starting the GUI event loop
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() > 1 && (args[1] == "--version" || args[1] == "-V") {
+        println!("taskman {}", env!("CARGO_PKG_VERSION"));
+        return;
+    }
+
     let event_loop = EventLoop::new().unwrap();
     let mut app = TaskManager::new();
     event_loop.run_app(&mut app).unwrap();
