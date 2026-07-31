@@ -89,17 +89,24 @@ impl TaskManager {
 
 impl ApplicationHandler for TaskManager {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        let window = Arc::new(event_loop.create_window(
-            winit::window::Window::default_attributes()
-                .with_title("Task Manager")
-                .with_inner_size(winit::dpi::LogicalSize::new(WIDTH, HEIGHT))
-                .with_resizable(false)
-                .with_enabled_buttons(WindowButtons::MINIMIZE | WindowButtons::CLOSE)
-                // --- ADD THESE TWO LINES ---
-                .with_min_inner_size(winit::dpi::LogicalSize::new(WIDTH, HEIGHT))
-                .with_max_inner_size(winit::dpi::LogicalSize::new(WIDTH, HEIGHT))
-                // ---------------------------
-        ).unwrap());
+        let window_attributes = winit::window::Window::default_attributes()
+            .with_title("Task Manager")
+            .with_inner_size(winit::dpi::LogicalSize::new(WIDTH, HEIGHT))
+            .with_resizable(false)
+            .with_enabled_buttons(WindowButtons::MINIMIZE | WindowButtons::CLOSE)
+            .with_min_inner_size(winit::dpi::LogicalSize::new(WIDTH, HEIGHT))
+            .with_max_inner_size(winit::dpi::LogicalSize::new(WIDTH, HEIGHT));
+
+        // Explicitly set the app_id / WM_CLASS to "taskman" to avoid aliases and title fallback
+        #[cfg(target_os = "linux")]
+        let window_attributes = {
+            use winit::platform::wayland::WindowAttributesExtWayland;
+            use winit::platform::x11::WindowAttributesExtX11;
+            let wa = WindowAttributesExtWayland::with_name(window_attributes, "taskman", "taskman");
+            WindowAttributesExtX11::with_name(wa, "taskman", "taskman")
+        };
+
+        let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
 
         // By moving window creation here and using a static-safe approach, 
         // we can initialize Pixels safely.
